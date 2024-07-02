@@ -23,16 +23,31 @@
       }
     ],
     "configuration": {
-            "type": "object",
-            "title": "Dependency Check Configuration",
-            "properties": {
-                "dependencyCheck.installDir": {
-                    "type": "string",
-                    "default": "C:\\Users\\Igor\\Desktop\\Dependency-Check\\dependency-check\\bin",
-                    "description": "The installation directory of Dependency Check"
-                }
-            }
+      "type": "object",
+      "title": "Dependency Check Configuration",
+      "properties": {
+        "dependencyCheck.installDir": {
+          "type": "string",
+          "default": "C:\\Users\\Igor\\Desktop\\Dependency-Check",
+          "description": "The installation directory of Dependency Check"
+        },
+        "dependencyCheck.noupdate": {
+        "type": "boolean",
+        "default": false,
+        "description": "Whether to skip updating the Dependency Check database (--noupdate)"
+        },
+        "dependencyCheck.format": {
+            "type": "string",
+            "default": "JSON",
+            "description": "Output format for Dependency Check (--format)"
+        },
+        "dependencyCheck.nvdApiKey": {
+            "type": "string",
+            "default": "",
+            "description": "API Key for NVD (--nvdApiKey)"
         }
+      }
+    }
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
@@ -45,6 +60,7 @@
   "devDependencies": {
     "@types/mocha": "^10.0.7",
     "@types/node": "20.x",
+    "@types/unzipper": "^0.10.9",
     "@types/vscode": "^1.90.0",
     "@typescript-eslint/eslint-plugin": "^7.14.1",
     "@typescript-eslint/parser": "^7.11.0",
@@ -54,6 +70,7 @@
     "typescript": "^5.4.5"
   },
   "dependencies": {
+    "axios": "^1.7.2",
     "node-fetch": "^3.3.2",
     "tar": "^7.4.0",
     "unzipper": "^0.12.1",
