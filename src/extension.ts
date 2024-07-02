@@ -6,8 +6,8 @@ import * as path from 'path';
 export function activate(context: vscode.ExtensionContext) {
     console.log('Congratulations, your extension "dependency-check" is now active!');
 
-    let isCommandCompleted = false;
     let consoleOutput = '';
+    let progressBarState = 0; // 0 - initial, 1 - in progress, 2 - completed
 
     const disposableHello = vscode.commands.registerCommand('dependency-check.helloWorld', () => {
         const panel = vscode.window.createWebviewPanel(
@@ -19,16 +19,16 @@ export function activate(context: vscode.ExtensionContext) {
 
         vscode.window.showInformationMessage('Hello World from Dependency-Check!');
 
-        panel.webview.html = getWebviewContent(consoleOutput, isCommandCompleted);
+        panel.webview.html = getWebviewContent(consoleOutput, progressBarState);
 
         panel.webview.onDidReceiveMessage(
             message => {
                 console.log('Received message:', message);
                 switch (message.command) {
                     case 'runDependencyCheck':
-                        isCommandCompleted = false;
+                        progressBarState = 1;
                         consoleOutput = ''; // Очистка консольного вывода при повторном выполнении
-                        panel.webview.html = getWebviewContent(consoleOutput, isCommandCompleted);
+                        panel.webview.html = getWebviewContent(consoleOutput, progressBarState);
                         runDependencyCheck(panel);
                         return;
                 }
@@ -38,7 +38,7 @@ export function activate(context: vscode.ExtensionContext) {
         );
 
         // Восстановление состояния при повторном открытии панели
-        panel.webview.html = getWebviewContent(consoleOutput, isCommandCompleted);
+        panel.webview.html = getWebviewContent(consoleOutput, progressBarState);
     });
 
     context.subscriptions.push(disposableHello);
@@ -79,15 +79,15 @@ export function activate(context: vscode.ExtensionContext) {
             console.log('Process closed with code:', code);
             if (code !== 0) {
                 vscode.window.showErrorMessage(`Dependency Check завершился с ошибкой. Код завершения: ${code}`);
-                isCommandCompleted = true;
-                panel.webview.html = getWebviewContent(consoleOutput, isCommandCompleted);
+                progressBarState = 2;
+                panel.webview.html = getWebviewContent(consoleOutput, progressBarState);
                 return;
             }
 
             vscode.window.showInformationMessage(`Dependency Check выполнен успешно`);
-            isCommandCompleted = true;
-            panel.webview.html = getWebviewContent(consoleOutput, isCommandCompleted);
-            setTimeout(() => openNewResultPanel(reportPath), 4000);
+            progressBarState = 2;
+            panel.webview.html = getWebviewContent(consoleOutput, progressBarState);
+            setTimeout(() => openNewResultPanel(reportPath), 2000);
         });
     }
 
@@ -119,7 +119,7 @@ export function activate(context: vscode.ExtensionContext) {
         });
     }
 
-    function getWebviewContent(consoleOutput: string, isCompleted: boolean) {
+    function getWebviewContent(consoleOutput: string, progressBarState: number) {
         return `<!DOCTYPE html>
         <html lang="en">
         <head>
@@ -129,9 +129,9 @@ export function activate(context: vscode.ExtensionContext) {
         </head>
         <body>
             <button id="runDependencyCheck">Run Dependency Check</button>
-            <div id="progress">${isCompleted ? 'Команда успешно выполнена.' : ''}</div>
+            <div id="progress">${progressBarState === 2 ? 'Команда успешно выполнена.' : ''}</div>
             <div class="progress-bar">
-                <div class="progress ${isCompleted ? 'completed' : ''}"></div>
+                <div class="progress ${progressBarState === 2 ? 'completed' : ''}" style="width: ${progressBarState === 1 ? '0' : '100%'};"></div>
             </div>
             <div id="consoleOutput">${consoleOutput}</div>
             <script>
@@ -143,28 +143,39 @@ export function activate(context: vscode.ExtensionContext) {
                     const message = event.data;
                     if (message.command === 'updateConsole') {
                         updateConsoleOutput(message.text);
+                        updateProgressBar(1);
                     }
                 });
                 function updateConsoleOutput(text) {
                     const consoleOutput = document.getElementById('consoleOutput');
                     consoleOutput.textContent += text + '\\n';
-                    consoleOutput.scrollDown = consoleOutput.scrollHeight;
+                    consoleOutput.scrollTop = consoleOutput.scrollHeight;
                 }
-                function updateProgressBar(isCompleted) {
+                function updateProgressBar(state) {
                     const progressBar = document.querySelector('.progress');
-                    let width = 0;
-                    const interval = setInterval(() => {
-                        if (isCompleted) {
-                            clearInterval(interval);
-                            progressBar.style.width = '100%';
-                        } else {
-                            width = (width + 1) % 100;
-                            progressBar.style.width = width + '%';
+                    if (state === 1) {
+                        let currentWidth = parseFloat(progressBar.style.width) || 0;
+
+                        function animate() {
+                            if (currentWidth < 100) {
+                                currentWidth += 1; // Увеличиваем ширину на 1% (можно настроить скорость изменения)
+                                progressBar.style.width = currentWidth + '%';
+                                requestAnimationFrame(animate);
+                            } else {
+                                currentWidth = 0; // Сбрасываем до 0, чтобы зациклить анимацию
+                                animate(); // Запускаем анимацию заново
+                            }
                         }
-                    }, 100);
+
+                        animate();
+                    } else {
+                        progressBar.style.width = '0%'; // Если state не равен 1, обнуляем прогресс бар
+                    }
                 }
-                if (!${isCompleted}) {
-                    updateProgressBar(false);
+                if (${progressBarState} === 1) {
+                    updateProgressBar(1);
+                } else if (${progressBarState} === 0) {
+                    document.querySelector('.progress').style.width = '0%';
                 }
             </script>
             <style>
