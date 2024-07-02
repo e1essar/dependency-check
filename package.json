@@ -16,6 +16,10 @@
       {
         "command": "dependency-check.helloWorld",
         "title": "Hello World"
+      },
+      {
+        "command": "dependency-check.showSettings",
+        "title": "Show Settings"
       }
     ],
     "configuration": {
