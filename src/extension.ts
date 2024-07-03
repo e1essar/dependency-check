@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { exec } from 'child_process';
+import { exec, ChildProcess } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -11,6 +11,7 @@ export function activate(context: vscode.ExtensionContext) {
 
     let consoleOutput = '';
     let progressBarState = 0; // 0 - initial, 1 - in progress, 2 - completed
+    let currentProcess: ChildProcess | null = null;
 
     const disposableHello = vscode.commands.registerCommand('dependency-check.helloWorld', () => {
         const panel = vscode.window.createWebviewPanel(
@@ -34,6 +35,15 @@ export function activate(context: vscode.ExtensionContext) {
                         panel.webview.html = getWebviewContent(consoleOutput, progressBarState);
                         runDependencyCheck(panel);
                         return;
+                    case 'cancelDependencyCheck':
+                        if (currentProcess) {
+                            currentProcess.kill();
+                            currentProcess = null;
+                            progressBarState = 0;
+                            consoleOutput += '\nProcess cancelled by user.\n';
+                            panel.webview.html = getWebviewContent(consoleOutput, progressBarState);
+                        }
+                        return;
                 }
             },
             undefined,
@@ -52,7 +62,7 @@ export function activate(context: vscode.ExtensionContext) {
             vscode.ViewColumn.One,
             { enableScripts: true }
         );
-    
+
         function updateSettingsForm() {
             const config = vscode.workspace.getConfiguration('dependencyCheck');
             const htmlContent = `
@@ -114,10 +124,17 @@ export function activate(context: vscode.ExtensionContext) {
             `;
             panel.webview.html = htmlContent;
         }
-    
-        // Обновляем форму при создании вебвью
-        
-    
+
+        panel.onDidChangeViewState(
+            e => {
+                if (e.webviewPanel.visible) {
+                    updateSettingsForm();
+                }
+            },
+            null,
+            context.subscriptions
+        );
+
         panel.webview.onDidReceiveMessage(
             async message => {
                 switch (message.command) {
@@ -135,9 +152,10 @@ export function activate(context: vscode.ExtensionContext) {
             undefined,
             context.subscriptions
         );
-        
+
+        // Вызов функции обновления содержимого при первом открытии панели
+        updateSettingsForm();
     });
-    
 
     context.subscriptions.push(disposableSettings);
 
@@ -163,10 +181,6 @@ export function activate(context: vscode.ExtensionContext) {
 
         const binPath = path.join(installDir, 'dependency-check', 'bin');
         const batFilePath = path.join(binPath, 'dependency-check.bat');
-        
-        // if (!fs.existsSync(binPath) || !fs.existsSync(batFilePath)) {
-        //     await updateDependencyCheck(panel);
-        // }
 
         if (!fs.existsSync(batFilePath)) {
             vscode.window.showErrorMessage("Dependency Check executable not found after update. Please check the install directory.");
@@ -179,25 +193,25 @@ export function activate(context: vscode.ExtensionContext) {
         if (noupdate) {
             dependencyCheckCmd += ' --noupdate';
         }
-    
+
         if (nvdApiKey) {
             dependencyCheckCmd += ` --nvdApiKey "${nvdApiKey}"`;
         }
-        
+
         vscode.window.showInformationMessage(dependencyCheckCmd);
-        const process = exec(dependencyCheckCmd);
-        
-        process.stdout?.on('data', (data) => {
+        currentProcess = exec(dependencyCheckCmd);
+
+        currentProcess.stdout?.on('data', (data) => {
             consoleOutput += data;
             panel.webview.postMessage({ command: 'updateConsole', text: data });
         });
 
-        process.stderr?.on('data', (data) => {
+        currentProcess.stderr?.on('data', (data) => {
             consoleOutput += data;
             panel.webview.postMessage({ command: 'updateConsole', text: data });
         });
 
-        process.on('close', (code) => {
+        currentProcess.on('close', (code) => {
             if (code !== 0) {
                 vscode.window.showErrorMessage(`Dependency Check завершился с ошибкой. Код завершения: ${code}`);
                 progressBarState = 2;
@@ -338,6 +352,7 @@ export function activate(context: vscode.ExtensionContext) {
         <body>
             <button id="runDependencyCheck">Run Dependency Check</button>
             <div id="progress">${progressBarState === 2 ? 'Команда успешно выполнена.' : ''}</div>
+            <button id="cancelDependencyCheck" ${progressBarState !== 1 ? 'disabled' : ''}>Cancel Dependency Check</button>
             <div class="progress-bar">
                 <div class="progress ${progressBarState === 2 ? 'completed' : ''}" style="width: ${progressBarState === 1 ? '0' : '100%'};"></div>
             </div>
@@ -347,6 +362,9 @@ export function activate(context: vscode.ExtensionContext) {
                 document.getElementById('runDependencyCheck').addEventListener('click', () => {
                     vscode.postMessage({ command: 'runDependencyCheck' });
                 });
+                document.getElementById('cancelDependencyCheck').addEventListener('click', () => {
+                        vscode.postMessage({ command: 'cancelDependencyCheck' });
+                    });
                 window.addEventListener('message', event => {
                     const message = event.data;
                     if (message.command === 'updateConsole') {
