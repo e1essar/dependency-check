@@ -454,4 +454,42 @@ export function activate(context: vscode.ExtensionContext) {
         </body>
         </html>`;
     }
+
+    function watchForDependencyChanges(context: vscode.ExtensionContext) {
+        const packageJsonWatcher = vscode.workspace.createFileSystemWatcher('**/package.json');
+
+        packageJsonWatcher.onDidChange(async (uri) => {
+            const answer = await vscode.window.showInformationMessage(
+                'Файл package.json был изменен. Вы хотите запустить Dependency Check?', 
+                'Да', 
+                'Нет'
+            );
+
+            if (answer === 'Да') {
+                runDependencyCheckAndUpdateView(context);
+            }
+        });
+
+        context.subscriptions.push(packageJsonWatcher);
+    }
+
+    function runDependencyCheckAndUpdateView(context: vscode.ExtensionContext) {
+        const panel = vscode.window.createWebviewPanel(
+            'dependencyCheckPanel',
+            'Dependency Check Output',
+            vscode.ViewColumn.One,
+            { enableScripts: true }
+        );
+
+        progressBarState = 1;
+        consoleOutput = '';
+        panel.webview.html = getWebviewContent(consoleOutput, progressBarState);
+        runDependencyCheck(panel);
+    }
+
+    watchForDependencyChanges(context);
 }
+
+export function deactivate() {}
+
+
