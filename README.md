@@ -1,71 +1,46 @@
-# dependency-check README
+# Dependency-Check Extension for VSCode
 
-This is the README for your extension "dependency-check". After writing up a brief description, we recommend including the following sections.
+- Расширение разработано в рамках PT_START INT-31 
 
-## Features
+## Commands
 
-Describe specific features of your extension including screenshots of your extension in action. Image paths are relative to this README file.
+* `showSettings`: Отображает глобальные/проектные настройки и кнопку обновления версии DC
+* `runDC`: Открывает окно с запуском Dependency Check для анализа текущего открытого проекта
 
-For example if there is an image subfolder under your extension project workspace:
+![image](https://github.com/e1essar/dependency-check/assets/80064778/53152f11-8945-40ea-ac09-edcaf7bb0ee1)
 
-\!\[feature X\]\(images/feature-x.png\)
+> Tip: 
 
-> Tip: Many popular extensions utilize animations. This is an excellent way to show off your extension! We recommend short, focused animations that are easy to follow.
+## Interfaces
+
+- Run Dependency Check (runDC)
+
+![image](https://github.com/e1essar/dependency-check/assets/80064778/9eb2dab3-2265-4aa0-9025-8c7fadad1b8e)
+
+![image](https://github.com/e1essar/dependency-check/assets/80064778/7a630eec-0745-49e0-8e5d-6576f50a2c0f)
+
+![image](https://github.com/e1essar/dependency-check/assets/80064778/e00dc8a9-792b-42a9-a2bb-6e3e32dcd7aa)
+
+- Show Settings (showSettings)
+
+![image](https://github.com/e1essar/dependency-check/assets/80064778/2d0ec678-c7c9-45dd-b0d1-b1cdb5d57ef7)
+
+> PS: Обновление Dependency Check не работает по неизвестной причине (работало в предыдущих коммитах). В дальнейшем будет фикс!
 
 ## Requirements
 
-If you have any requirements or dependencies, add a section describing those and how to install and configure them.
+- Установить актуальную версию Java
+- Поместить папку с расширением в папку с расширениями vscode(при этом установить необходимые зависимости)
 
-## Extension Settings
+## Issues
 
-Include if your extension adds any VS Code settings through the `contributes.configuration` extension point.
-
-For example:
-
-This extension contributes the following settings:
-
-* `myExtension.enable`: Enable/disable this extension.
-* `myExtension.thing`: Set to `blah` to do something.
-
-## Known Issues
-
-Calling out known issues can help limit users opening duplicate issues against your extension.
+Обновление Dependency Check - проблема в активации работы команды
+Отмена текущей команды Cancel Dependency Check - проблема в остановке работы текущей команды
 
 ## Release Notes
 
-Users appreciate release notes as you update your extension.
+### 0.0.1
 
-### 1.0.0
-
-Initial release of ...
-
-### 1.0.1
-
-Fixed issue #.
-
-### 1.1.0
-
-Added features X, Y, and Z.
-
----
-
-## Following extension guidelines
-
-Ensure that you've read through the extensions guidelines and follow the best practices for creating your extension.
-
-* [Extension Guidelines](https://code.visualstudio.com/api/references/extension-guidelines)
-
-## Working with Markdown
-
-You can author your README using Visual Studio Code. Here are some useful editor keyboard shortcuts:
-
-* Split the editor (`Cmd+\` on macOS or `Ctrl+\` on Windows and Linux).
-* Toggle preview (`Shift+Cmd+V` on macOS or `Shift+Ctrl+V` on Windows and Linux).
-* Press `Ctrl+Space` (Windows, Linux, macOS) to see a list of Markdown snippets.
-
-## For more information
-
-* [Visual Studio Code's Markdown Support](http://code.visualstudio.com/docs/languages/markdown)
-* [Markdown Syntax Reference](https://help.github.com/articles/markdown-basics/)
+Initial release of Dependency Check Extension
 
 **Enjoy!**
