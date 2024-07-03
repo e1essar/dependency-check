@@ -6,405 +6,92 @@ import * as os from 'os';
 import axios from 'axios';
 import unzipper from 'unzipper';
 
+let consoleOutput = '';
+let progressBarState = 0; // 0 - initial, 1 - in progress, 2 - completed
+let currentProcess: ChildProcess | null = null;
+
 export function activate(context: vscode.ExtensionContext) {
     console.log('Congratulations, your extension "dependency-check" is now active!');
 
-    let consoleOutput = '';
-    let progressBarState = 0; // 0 - initial, 1 - in progress, 2 - completed
-    let currentProcess: ChildProcess | null = null;
+    context.subscriptions.push(
+        vscode.commands.registerCommand('dependency-check.runDC', showOutputPanel),
+        vscode.commands.registerCommand('dependency-check.showSettings', showSettingsPanel)
+    );
 
-    const disposableHello = vscode.commands.registerCommand('dependency-check.helloWorld', () => {
-        const panel = vscode.window.createWebviewPanel(
-            'dependencyCheckPanel',
-            'Dependency Check Output',
-            vscode.ViewColumn.One,
-            { enableScripts: true }
-        );
+    watchForDependencyChanges(context);
+}
 
-        vscode.window.showInformationMessage('Hello World from Dependency-Check!');
+export function deactivate() {}
 
-        panel.webview.html = getWebviewContent(consoleOutput, progressBarState);
+function showOutputPanel() {
+    const panel = createWebviewPanel('dependencyCheckPanel', 'Dependency Check Output');
+    panel.webview.html = getWebviewContent();
+    setupWebviewMessageListener(panel);
+}
 
-        panel.webview.onDidReceiveMessage(
-            message => {
-                console.log('Received message:', message);
-                switch (message.command) {
-                    case 'runDependencyCheck':
-                        progressBarState = 1;
-                        consoleOutput = '';
-                        panel.webview.html = getWebviewContent(consoleOutput, progressBarState);
-                        runDependencyCheck(panel);
-                        return;
-                    case 'cancelDependencyCheck':
-                        if (currentProcess) {
-                            currentProcess.kill();
-                            currentProcess = null;
-                            progressBarState = 0;
-                            consoleOutput += '\nProcess cancelled by user.\n';
-                            panel.webview.html = getWebviewContent(consoleOutput, progressBarState);
-                        }
-                        return;
-                }
-            },
-            undefined,
-            context.subscriptions
-        );
+function showSettingsPanel() {
+    const panel = createWebviewPanel('dependencyCheckSettingsPanel', 'Dependency Check Settings');
+    updateSettingsForm(panel);
+    setupSettingsWebviewMessageListener(panel);
+}
 
-        panel.webview.html = getWebviewContent(consoleOutput, progressBarState);
+function setupSettingsWebviewMessageListener(panel: vscode.WebviewPanel) {
+    panel.webview.onDidReceiveMessage(async message => {
+        if (message.command === 'saveSettings') {
+            await saveSettings(message.settings);
+            vscode.window.showInformationMessage('Settings saved successfully.');
+            panel.dispose();
+        }
+        if (message.command === 'updateDependencyCheck') {
+            await updateDependencyCheck(panel);
+            vscode.window.showInformationMessage('Dependency Check is up to date');
+            panel.dispose();
+        }
     });
+}
 
-    context.subscriptions.push(disposableHello);
+async function saveSettings(settings: any) {
+    const config = vscode.workspace.getConfiguration('dependencyCheck');
+    await config.update('installDir', settings.installDir, vscode.ConfigurationTarget.Global);
+    await config.update('noupdate', settings.noupdate, vscode.ConfigurationTarget.Global);
+    await config.update('format', settings.format, vscode.ConfigurationTarget.Global);
+    await config.update('nvdApiKey', settings.nvdApiKey, vscode.ConfigurationTarget.Global);
+}
 
-    let disposableSettings = vscode.commands.registerCommand('dependency-check.showSettings', () => {
-        const panel = vscode.window.createWebviewPanel(
-            'dependencyCheckSettingsPanel',
-            'Dependency Check Settings',
-            vscode.ViewColumn.One,
-            { enableScripts: true }
-        );
+function createWebviewPanel(viewType: string, title: string): vscode.WebviewPanel {
+    return vscode.window.createWebviewPanel(
+        viewType,
+        title,
+        vscode.ViewColumn.One,
+        { enableScripts: true }
+    );
+}
 
-        function updateSettingsForm() {
-            const config = vscode.workspace.getConfiguration('dependencyCheck');
-            const htmlContent = `
-                <!DOCTYPE html>
-                <html lang="en">
-                <head>
-                    <meta charset="UTF-8">
-                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                    <title>Dependency Check Settings</title>
-                </head>
-                <body>
-                    <h1>Dependency Check Settings</h1>
-                    <form id="settingsForm">
-                        <label for="installDir">Install Directory:</label>
-                        <input type="text" id="installDir" name="installDir" value="${config.get('installDir')}">
-                        <br><br>
-                        <label for="noupdate">Skip update (--noupdate):</label>
-                        <input type="checkbox" id="noupdate" name="noupdate" ${config.get('noupdate') ? 'checked' : ''}>
-                        <br><br>
-                        <label for="format">Output format (--format):</label>
-                        <input type="text" id="format" name="format" value="${config.get('format')}">
-                        <br><br>
-                        <label for="nvdApiKey">NVD API Key (--nvdApiKey):</label>
-                        <input type="text" id="nvdApiKey" name="nvdApiKey" value="${config.get('nvdApiKey')}">
-                        <br><br>
-                        <button type="submit">Save</button>
-                    </form>
-                    <br>
-                    <button id="updateDependencyCheck">Update Dependency Check</button>
-                    <div id="updateOutput"></div>
-                    <script>
-                        const vscode = acquireVsCodeApi();
-                        document.getElementById('settingsForm').addEventListener('submit', (event) => {
-                            event.preventDefault();
-                            const installDir = document.getElementById('installDir').value;
-                            const noupdate = document.getElementById('noupdate').checked;
-                            const format = document.getElementById('format').value;
-                            const nvdApiKey = document.getElementById('nvdApiKey').value;
-                            vscode.postMessage({
-                                command: 'saveSettings',
-                                installDir,
-                                noupdate,
-                                format,
-                                nvdApiKey
-                            });
-                        });
-                        document.getElementById('updateDependencyCheck').addEventListener('click', () => {
-                            vscode.postMessage({ command: 'updateDependencyCheck' });
-                        });
-                        window.addEventListener('message', event => {
-                            const message = event.data;
-                            if (message.command === 'updateOutput') {
-                                document.getElementById('updateOutput').textContent += message.text + '\\n';
-                            }
-                        });
-                    </script>
-                </body>
-                </html>
-            `;
-            panel.webview.html = htmlContent;
-        }
-
-        panel.onDidChangeViewState(
-            e => {
-                if (e.webviewPanel.visible) {
-                    updateSettingsForm();
-                }
-            },
-            null,
-            context.subscriptions
-        );
-
-        panel.webview.onDidReceiveMessage(
-            async message => {
-                switch (message.command) {
-                    case 'saveSettings':
-                        vscode.workspace.getConfiguration().update('dependencyCheck.installDir', message.installDir, vscode.ConfigurationTarget.Global);
-                        vscode.workspace.getConfiguration().update('dependencyCheck.noupdate', message.noupdate, vscode.ConfigurationTarget.Global);
-                        vscode.workspace.getConfiguration().update('dependencyCheck.format', message.format, vscode.ConfigurationTarget.Global);
-                        vscode.workspace.getConfiguration().update('dependencyCheck.nvdApiKey', message.nvdApiKey, vscode.ConfigurationTarget.Global);
-                        break;
-                    case 'updateDependencyCheck':
-                        await updateDependencyCheck(panel);
-                        break;
-                }
-            },
-            undefined,
-            context.subscriptions
-        );
-
-        // Вызов функции обновления содержимого при первом открытии панели
-        updateSettingsForm();
-    });
-
-    context.subscriptions.push(disposableSettings);
-
-    async function runDependencyCheck(panel: vscode.WebviewPanel) {
-        const config = vscode.workspace.getConfiguration('dependencyCheck');
-        const installDir = config.get<string>('installDir');
-        const noupdate = config.get<boolean>('noupdate');
-        const format = config.get<string>('format');
-        const nvdApiKey = config.get<string>('nvdApiKey');
-
-        if (!installDir) {
-            vscode.window.showErrorMessage("Install directory is not set. Please configure it in the settings.");
-            return;
-        }
-
-        let projectPath = '';
-        if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
-            projectPath = vscode.workspace.workspaceFolders[0].uri.fsPath;
-        } else {
-            vscode.window.showErrorMessage('No project folder is currently open');
-            return;
-        }
-
-        const binPath = path.join(installDir, 'dependency-check', 'bin');
-        const batFilePath = path.join(binPath, 'dependency-check.bat');
-
-        if (!fs.existsSync(batFilePath)) {
-            vscode.window.showErrorMessage("Dependency Check executable not found after update. Please check the install directory.");
-            return;
-        }
-
-        const reportPath = path.join(projectPath, 'dependency-check-report.json');
-        let dependencyCheckCmd = `"${batFilePath}" --project "Dependency Check" --scan "${projectPath}" --out "${projectPath}" --format "${format}" --prettyPrint `;
-
-        if (noupdate) {
-            dependencyCheckCmd += ' --noupdate';
-        }
-
-        if (nvdApiKey) {
-            dependencyCheckCmd += ` --nvdApiKey "${nvdApiKey}"`;
-        }
-
-        vscode.window.showInformationMessage(dependencyCheckCmd);
-        currentProcess = exec(dependencyCheckCmd);
-
-        currentProcess.stdout?.on('data', (data) => {
-            consoleOutput += data;
-            panel.webview.postMessage({ command: 'updateConsole', text: data });
-        });
-
-        currentProcess.stderr?.on('data', (data) => {
-            consoleOutput += data;
-            panel.webview.postMessage({ command: 'updateConsole', text: data });
-        });
-
-        currentProcess.on('close', (code) => {
-            if (code !== 0) {
-                vscode.window.showErrorMessage(`Dependency Check завершился с ошибкой. Код завершения: ${code}`);
-                progressBarState = 2;
-                panel.webview.html = getWebviewContent(consoleOutput, progressBarState);
-                return;
-            }
-
-            vscode.window.showInformationMessage(`Dependency Check выполнен успешно`);
-            progressBarState = 2;
-            panel.webview.html = getWebviewContent(consoleOutput, progressBarState);
-            setTimeout(() => openNewResultPanel(reportPath), 2000);
-        });
-    }
-
-    async function updateDependencyCheck(panel: vscode.WebviewPanel) {
-        const config = vscode.workspace.getConfiguration('dependencyCheck');
-        const installDir = config.get<string>('installDir');
-        if (!installDir) {
-            vscode.window.showErrorMessage("Set extension options first, path to DC 'bin' folder is empty");
-            return;
-        }
-
-        const dcFolderPath = installDir;
-        vscode.window.showInformationMessage(dcFolderPath);
-        try {
-            const isWindows = os.platform() === 'win32';
-
-            // Getting the latest version
-            const versionCommand = `curl https://jeremylong.github.io/DependencyCheck/current.txt`;
-            exec(versionCommand, async (error, stdout, stderr) => {
-                if (error) {
-                    panel.webview.postMessage({ command: 'updateOutput', text: `Error fetching current version: ${error.message}` });
-                    return;
-                }
-
-                const version = stdout.trim();
-                panel.webview.postMessage({ command: 'updateOutput', text: `Latest version: ${version}` });
-
-                // Clearing the DC folder
-                vscode.window.showInformationMessage(dcFolderPath);
-                let deleteCommand = isWindows ? `powershell -Command "Remove-Item -Path \\"${path.join(dcFolderPath, '*')}\\" -Recurse -Force"` : `rm -rf "${path.join(dcFolderPath, '*')}"`;
-                if (!fs.existsSync(dcFolderPath)) {
-                    vscode.window.showInformationMessage("1");
-                    deleteCommand = `ipconfig`;
-                }
-
-                exec(deleteCommand, async (delError, delStdout, delStderr) => {
-                    if (delError) {
-                        panel.webview.postMessage({ command: 'updateOutput', text: `Error deleting old version: ${delError.message}` });
-                        return;
-                    }
-
-                    panel.webview.postMessage({ command: 'updateOutput', text: `Old version deleted` });
-
-                    // Downloading the new zip
-                    const zipPath = path.join(dcFolderPath, 'dependency-check.zip');
-                    panel.webview.postMessage({ command: 'updateOutput', text: `Zip path: ${zipPath}` });
-
-                    try {
-                        const response = await axios({
-                            method: 'GET',
-                            url: `https://github.com/jeremylong/DependencyCheck/releases/download/v${version}/dependency-check-${version}-release.zip`,
-                            responseType: 'stream'
-                        });
-
-                        const writer = fs.createWriteStream(zipPath);
-                        response.data.pipe(writer);
-
-                        await new Promise((resolve, reject) => {
-                            writer.on('finish', resolve);
-                            writer.on('error', reject);
-                        });
-
-                        panel.webview.postMessage({ command: 'updateOutput', text: `Downloaded new version` });
-
-                        // Unzipping the file
-                        fs.createReadStream(zipPath)
-                            .pipe(unzipper.Extract({ path: dcFolderPath }))
-                            .on('close', () => {
-                                panel.webview.postMessage({ command: 'updateOutput', text: `Unzipped new version` });
-
-                                // Deleting the zip file
-                                fs.unlink(zipPath, (unlinkErr) => {
-                                    if (unlinkErr) {
-                                        panel.webview.postMessage({ command: 'updateOutput', text: `Error deleting zip file: ${unlinkErr.message}` });
-                                        return;
-                                    }
-
-                                    panel.webview.postMessage({ command: 'updateOutput', text: `Dependency Check updated to version ${version}` });
-                                });
-                            });
-                    } catch (downloadError) {
-                        panel.webview.postMessage({ command: 'updateOutput', text: `Error downloading new version: ${downloadError}` });
-                    }
-                });
-            });
-        } catch (error) {
-            vscode.window.showErrorMessage(`Error updating Dependency Check: ${(error as Error).message}`);
-        }
-    }
-
-    function openNewResultPanel(reportPath: string) {
-        const resultPanel = vscode.window.createWebviewPanel(
-            'dependencyCheckResultPanel',
-            'Dependency Check Result',
-            vscode.ViewColumn.One,
-            { enableScripts: true }
-        );
-
-        fs.readFile(reportPath, 'utf8', (err, data) => {
-            if (err) {
-                vscode.window.showErrorMessage(`Ошибка при чтении отчета: ${err.message}`);
-                resultPanel.webview.html = getResultWebviewContent(`Ошибка при чтении отчета: ${err.message}`);
-                //return;
-            }
-
-            let reportJson;
-            try {
-                reportJson = JSON.parse(data);
-            } catch (parseErr) {
-                vscode.window.showErrorMessage(`Ошибка при парсинге отчета: ${parseErr}`);
-                resultPanel.webview.html = getResultWebviewContent(`Ошибка при парсинге отчета: ${parseErr}`);
-                return;
-            }
-
-            resultPanel.webview.html = getResultWebviewContent(JSON.stringify(reportJson, null, 2));
-        });
-    }
-
-    function getWebviewContent(consoleOutput: string, progressBarState: number) {
-        return `<!DOCTYPE html>
+function getWebviewContent(): string {
+    return `<!DOCTYPE html>
         <html lang="en">
         <head>
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
             <title>Dependency Check Output</title>
-        </head>
-        <body>
-            <button id="runDependencyCheck">Run Dependency Check</button>
-            <div id="progress">${progressBarState === 2 ? 'Команда успешно выполнена.' : ''}</div>
-            <button id="cancelDependencyCheck" ${progressBarState !== 1 ? 'disabled' : ''}>Cancel Dependency Check</button>
-            <div class="progress-bar">
-                <div class="progress ${progressBarState === 2 ? 'completed' : ''}" style="width: ${progressBarState === 1 ? '0' : '100%'};"></div>
-            </div>
-            <div id="consoleOutput">${consoleOutput}</div>
-            <script>
-                const vscode = acquireVsCodeApi();
-                document.getElementById('runDependencyCheck').addEventListener('click', () => {
-                    vscode.postMessage({ command: 'runDependencyCheck' });
-                });
-                document.getElementById('cancelDependencyCheck').addEventListener('click', () => {
-                        vscode.postMessage({ command: 'cancelDependencyCheck' });
-                    });
-                window.addEventListener('message', event => {
-                    const message = event.data;
-                    if (message.command === 'updateConsole') {
-                        updateConsoleOutput(message.text);
-                        updateProgressBar(1);
-                    }
-                });
-                function updateConsoleOutput(text) {
-                    const consoleOutput = document.getElementById('consoleOutput');
-                    consoleOutput.textContent += text + '\\n';
-                    consoleOutput.scrollTop = consoleOutput.scrollHeight;
-                }
-                function updateProgressBar(state) {
-                    const progressBar = document.querySelector('.progress');
-                    if (state === 1) {
-                        let currentWidth = parseFloat(progressBar.style.width) || 0;
-
-                        function animate() {
-                            if (currentWidth < 100) {
-                                currentWidth += 1; // Увеличиваем ширину на 1% (можно настроить скорость изменения)
-                                progressBar.style.width = currentWidth + '%';
-                                requestAnimationFrame(animate);
-                            } else {
-                                currentWidth = 0; // Сбрасываем до 0, чтобы зациклить анимацию
-                                animate(); // Запускаем анимацию заново
-                            }
-                        }
-
-                        animate();
-                    } else {
-                        progressBar.style.width = '0%'; // Если state не равен 1, обнуляем прогресс бар
-                    }
-                }
-                if (${progressBarState} === 1) {
-                    updateProgressBar(1);
-                } else if (${progressBarState} === 0) {
-                    document.querySelector('.progress').style.width = '0%';
-                }
-            </script>
             <style>
+                body {
+                    font-family: Arial, sans-serif;
+                    margin: 20px;
+                    background-color: #333;
+                }
+                button {
+                    margin-top: 10px;
+                    padding: 8px 16px;
+                    background-color: #007acc;
+                    color: white;
+                    border: none;
+                    border-radius: 4px;
+                    cursor: pointer;
+                }
+                button:hover {
+                    background-color: #005f80;
+                }
                 .progress-bar {
                     width: 100%;
                     background-color: #f3f3f3;
@@ -414,7 +101,7 @@ export function activate(context: vscode.ExtensionContext) {
                     margin-top: 10px;
                 }
                 .progress {
-                    width: 0;
+                    width: ${progressBarState === 1 ? '0%' : '100%'};
                     height: 20px;
                     background-color: #4caf50;
                     text-align: center;
@@ -436,12 +123,243 @@ export function activate(context: vscode.ExtensionContext) {
                     overflow-y: scroll;
                 }
             </style>
+        </head>
+        <body>
+            <button id="runDependencyCheck">Run Dependency Check</button>
+            <div id="progress">${progressBarState === 2 ? 'Command executed successfully.' : ''}</div>
+            <button id="cancelDependencyCheck">Cancel Dependency Check</button>
+            <div class="progress-bar">
+                <div class="progress ${progressBarState === 2 ? 'completed' : ''}"></div>
+            </div>
+            <div id="consoleOutput">${consoleOutput}</div>
+            <script>
+                const vscode = acquireVsCodeApi();
+                document.getElementById('runDependencyCheck').addEventListener('click', () => vscode.postMessage({ command: 'runDependencyCheck' }));
+                document.getElementById('cancelDependencyCheck').addEventListener('click', () => vscode.postMessage({ command: 'cancelDependencyCheck' }));
+                window.addEventListener('message', event => {
+                    const message = event.data;
+                    if (message.command === 'updateConsole') {
+                        updateConsoleOutput(message.text);
+                        updateProgressBar(1);
+                    }
+                });
+                function updateConsoleOutput(text) {
+                    const consoleOutput = document.getElementById('consoleOutput');
+                    consoleOutput.textContent += text + '\\n';
+                    consoleOutput.scrollTop = consoleOutput.scrollHeight;
+                }
+                function updateProgressBar(state) {
+                    const progressBar = document.querySelector('.progress');
+                    if (state === 1) {
+                        let currentWidth = parseFloat(progressBar.style.width) || 0;
+                        function animate() {
+                            if (currentWidth < 100) {
+                                currentWidth += 1;
+                                progressBar.style.width = currentWidth + '%';
+                                requestAnimationFrame(animate);
+                            } else {
+                                currentWidth = 0;
+                                animate();
+                            }
+                        }
+                        animate();
+                    } else {
+                        progressBar.style.width = '0%';
+                    }
+                }
+                if (${progressBarState} === 1) {
+                    updateProgressBar(1);
+                } else if (${progressBarState} === 0) {
+                    document.querySelector('.progress').style.width = '0%';
+                }
+            </script>
         </body>
         </html>`;
+}
+
+function setupWebviewMessageListener(panel: vscode.WebviewPanel) {
+    panel.webview.onDidReceiveMessage(message => {
+        switch (message.command) {
+            case 'runDependencyCheck':
+                runDependencyCheck(panel);
+                break;
+            case 'cancelDependencyCheck':
+                cancelDependencyCheck(panel);
+                break;
+        }
+    });
+}
+
+async function runDependencyCheck(panel: vscode.WebviewPanel) {
+    const config = vscode.workspace.getConfiguration('dependencyCheck');
+    const installDir = config.get<string>('installDir');
+    const noupdate = config.get<boolean>('noupdate');
+    const format = config.get<string>('format');
+    const nvdApiKey = config.get<string>('nvdApiKey');
+
+    if (!installDir) {
+        vscode.window.showErrorMessage("Install directory is not set. Please configure it in the settings.");
+        return;
     }
 
-    function getResultWebviewContent(reportContent: string) {
-        return `<!DOCTYPE html>
+    let projectPath = '';
+    if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
+        projectPath = vscode.workspace.workspaceFolders[0].uri.fsPath;
+    } else {
+        vscode.window.showErrorMessage('No project folder is currently open');
+        return;
+    }
+
+    const batFilePath = path.join(installDir, 'dependency-check', 'bin', 'dependency-check.bat');
+    if (!fs.existsSync(batFilePath)) {
+        vscode.window.showErrorMessage("Dependency Check executable not found. Please check the install directory.");
+        return;
+    }
+
+    const reportPath = path.join(projectPath, 'dependency-check-report.json');
+    let dependencyCheckCmd = `"${batFilePath}" --project "Dependency Check" --scan "${projectPath}" --out "${projectPath}" --format "${format}" --format "JSON" --prettyPrint`;
+    if (noupdate) { dependencyCheckCmd += ' --noupdate'; };
+    if (nvdApiKey) { dependencyCheckCmd += ` --nvdApiKey "${nvdApiKey}"`; };
+
+    currentProcess = exec(dependencyCheckCmd);
+    progressBarState = 1;
+
+    currentProcess.stdout?.on('data', (data) => {
+        consoleOutput += data;
+        panel.webview.postMessage({ command: 'updateConsole', text: data });
+    });
+
+    currentProcess.stderr?.on('data', (data) => {
+        consoleOutput += data;
+        panel.webview.postMessage({ command: 'updateConsole', text: data });
+    });
+
+    currentProcess.on('close', (code) => {
+        progressBarState = 2;
+        if (code !== 0) {
+            vscode.window.showErrorMessage(`Dependency Check completed with error. Exit code: ${code}`);
+        } else {
+            vscode.window.showInformationMessage(`Dependency Check completed successfully`);
+            setTimeout(() => openNewResultPanel(reportPath), 2000);
+        }
+        panel.webview.html = getWebviewContent();
+    });
+}
+
+function cancelDependencyCheck(panel: vscode.WebviewPanel) {
+    if (currentProcess) {
+        currentProcess.kill();
+        currentProcess = null;
+        progressBarState = 0;
+        consoleOutput += '\nProcess cancelled by user.\n';
+        panel.webview.postMessage({ command: 'updateConsole', text: 'Process cancelled by user.' });
+        panel.webview.html = getWebviewContent();
+    }
+}
+
+async function updateDependencyCheck(panel: vscode.WebviewPanel) {
+    const config = vscode.workspace.getConfiguration('dependencyCheck');
+    const installDir = config.get<string>('installDir');
+    if (!installDir) {
+        vscode.window.showErrorMessage("Set extension options first, path to DC 'bin' folder is empty");
+        return;
+    }
+
+    const dcFolderPath = installDir;
+    vscode.window.showInformationMessage(dcFolderPath);
+    try {
+        const isWindows = os.platform() === 'win32';
+
+        // Getting the latest version
+        const versionCommand = `curl https://jeremylong.github.io/DependencyCheck/current.txt`;
+        exec(versionCommand, async (error, stdout, stderr) => {
+            if (error) {
+                panel.webview.postMessage({ command: 'updateOutput', text: `Error fetching current version: ${error.message}` });
+                return;
+            }
+
+            const version = stdout.trim();
+            panel.webview.postMessage({ command: 'updateOutput', text: `Latest version: ${version}` });
+
+            // Clearing the DC folder
+            vscode.window.showInformationMessage(dcFolderPath);
+            let deleteCommand = isWindows ? `powershell -Command "Remove-Item -Path \\"${path.join(dcFolderPath, '*')}\\" -Recurse -Force"` : `rm -rf "${path.join(dcFolderPath, '*')}"`;
+            if (!fs.existsSync(dcFolderPath)) {
+                deleteCommand = `echo "hello"`;
+            }
+
+            exec(deleteCommand, async (delError, delStdout, delStderr) => {
+                if (delError) {
+                    panel.webview.postMessage({ command: 'updateOutput', text: `Error deleting old version: ${delError.message}` });
+                    return;
+                }
+
+                panel.webview.postMessage({ command: 'updateOutput', text: `Old version deleted` });
+
+                // Downloading the new zip
+                const zipPath = path.join(dcFolderPath, 'dependency-check.zip');
+                panel.webview.postMessage({ command: 'updateOutput', text: `Zip path: ${zipPath}` });
+
+                try {
+                    const response = await axios({
+                        method: 'GET',
+                        url: `https://github.com/jeremylong/DependencyCheck/releases/download/v${version}/dependency-check-${version}-release.zip`,
+                        responseType: 'stream'
+                    });
+
+                    const writer = fs.createWriteStream(zipPath);
+                    response.data.pipe(writer);
+
+                    await new Promise((resolve, reject) => {
+                        writer.on('finish', resolve);
+                        writer.on('error', reject);
+                    });
+
+                    panel.webview.postMessage({ command: 'updateOutput', text: `Downloaded new version` });
+
+                    // Unzipping the file
+                    fs.createReadStream(zipPath)
+                        .pipe(unzipper.Extract({ path: dcFolderPath }))
+                        .on('close', () => {
+                            panel.webview.postMessage({ command: 'updateOutput', text: `Unzipped new version` });
+
+                            // Deleting the zip file
+                            fs.unlink(zipPath, (unlinkErr) => {
+                                if (unlinkErr) {
+                                    panel.webview.postMessage({ command: 'updateOutput', text: `Error deleting zip file: ${unlinkErr.message}` });
+                                    return;
+                                }
+
+                                panel.webview.postMessage({ command: 'updateOutput', text: `Dependency Check updated to version ${version}` });
+                            });
+                        });
+                } catch (downloadError) {
+                    panel.webview.postMessage({ command: 'updateOutput', text: `Error downloading new version: ${downloadError}` });
+                }
+            });
+        });
+    } catch (error) {
+        vscode.window.showErrorMessage(`Error updating Dependency Check: ${(error as Error).message}`);
+    }
+}
+
+function openNewResultPanel(reportPath: string) {
+    if (fs.existsSync(reportPath)) {
+        const reportContent = fs.readFileSync(reportPath, 'utf8');
+        const resultPanel = vscode.window.createWebviewPanel(
+            'dependencyCheckResultPanel',
+            'Dependency Check Result',
+            vscode.ViewColumn.One,
+            { enableScripts: true }
+        );
+        resultPanel.webview.html = getResultWebviewContent(reportContent);
+    } else {
+        vscode.window.showErrorMessage('Dependency Check report not found.');
+    }
+}
+
+function getResultWebviewContent(reportContent: string): string {
+    return `<!DOCTYPE html>
         <html lang="en">
         <head>
             <meta charset="UTF-8">
@@ -453,43 +371,129 @@ export function activate(context: vscode.ExtensionContext) {
             <pre>${reportContent}</pre>
         </body>
         </html>`;
-    }
-
-    function watchForDependencyChanges(context: vscode.ExtensionContext) {
-        const packageJsonWatcher = vscode.workspace.createFileSystemWatcher('**/package.json');
-
-        packageJsonWatcher.onDidChange(async (uri) => {
-            const answer = await vscode.window.showInformationMessage(
-                'Файл package.json был изменен. Вы хотите запустить Dependency Check?', 
-                'Да', 
-                'Нет'
-            );
-
-            if (answer === 'Да') {
-                runDependencyCheckAndUpdateView(context);
-            }
-        });
-
-        context.subscriptions.push(packageJsonWatcher);
-    }
-
-    function runDependencyCheckAndUpdateView(context: vscode.ExtensionContext) {
-        const panel = vscode.window.createWebviewPanel(
-            'dependencyCheckPanel',
-            'Dependency Check Output',
-            vscode.ViewColumn.One,
-            { enableScripts: true }
-        );
-
-        progressBarState = 1;
-        consoleOutput = '';
-        panel.webview.html = getWebviewContent(consoleOutput, progressBarState);
-        runDependencyCheck(panel);
-    }
-
-    watchForDependencyChanges(context);
 }
 
-export function deactivate() {}
+function updateSettingsForm(panel: vscode.WebviewPanel) {
+    const config = vscode.workspace.getConfiguration('dependencyCheck');
+    const installDir = config.get<string>('installDir') || '';
+    const noupdate = config.get<boolean>('noupdate') || false;
+    const format = config.get<string>('format') || 'JSON';
+    const nvdApiKey = config.get<string>('nvdApiKey') || '';
 
+    panel.webview.html = `<!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Dependency Check Settings</title>
+        <style>
+            body {
+                font-family: Arial, sans-serif;
+                margin: 20px;
+            }
+            h1 {
+                color: #333;
+            }
+            form {
+                max-width: 400px;
+                margin-top: 20px;
+            }
+            label {
+                display: block;
+                margin-top: 10px;
+            }
+            input[type="text"], select {
+                width: calc(100% - 12px);
+                padding: 6px;
+                margin-top: 3px;
+                font-size: 14px;
+                border: 1px solid #ccc;
+                border-radius: 4px;
+            }
+            input[type="checkbox"] {
+                margin-top: 5px;
+            }
+            button {
+                margin-top: 10px;
+                padding: 8px 16px;
+                background-color: #007acc;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                cursor: pointer;
+            }
+            button:hover {
+                background-color: #005f80;
+            }
+        </style>
+    </head>
+    <body>
+        <h1>Dependency Check Settings</h1>
+        <form id="settingsForm">
+            <label for="installDir">Install Directory:</label>
+            <input type="text" id="installDir" name="installDir" value="${installDir}">
+            <br>
+            <label for="noupdate">No Update:</label>
+            <input type="checkbox" id="noupdate" name="noupdate" ${noupdate ? 'checked' : ''}>
+            <br>
+            <label for="format">Report Format:</label>
+            <select id="format" name="format">
+                <option value="JSON" ${format === 'JSON' ? 'selected' : ''}>JSON</option>
+                <option value="XML" ${format === 'XML' ? 'selected' : ''}>XML</option>
+                <option value="HTML" ${format === 'HTML' ? 'selected' : ''}>HTML</option>
+            </select>
+            <br>
+            <label for="nvdApiKey">NVD API Key:</label>
+            <input type="text" id="nvdApiKey" name="nvdApiKey" value="${nvdApiKey}">
+            <br>
+            <button type="button" onclick="saveSettings()">Save Settings</button>
+            <button type="button" onclick="updateDependencyCheck()">Update Dependency Check</button>
+        </form>
+        <script>
+            const vscode = acquireVsCodeApi();
+            function saveSettings() {
+                const settings = {
+                    installDir: document.getElementById('installDir').value,
+                    noupdate: document.getElementById('noupdate').checked,
+                    format: document.getElementById('format').value,
+                    nvdApiKey: document.getElementById('nvdApiKey').value
+                };
+                vscode.postMessage({ command: 'saveSettings', settings: settings });
 
+            }
+            function updateDependencyCheck() {
+                vscode.postMessage({ command: 'updateDependencyCheck' });
+            }
+        </script>
+    </body>
+    </html>`;
+}
+
+function watchForDependencyChanges(context: vscode.ExtensionContext) {
+    if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
+        const projectPath = vscode.workspace.workspaceFolders[0].uri.fsPath;
+        const dependencyFiles = ['package.json', 'pom.xml', 'build.gradle', 'build.gradle.kts'];
+
+        dependencyFiles.forEach(file => {
+            const filePath = path.join(projectPath, file);
+            if (fs.existsSync(filePath)) {
+                const watcher = vscode.workspace.createFileSystemWatcher(
+                    new vscode.RelativePattern(projectPath, file)
+                );
+                watcher.onDidChange(() => showAutoRunPrompt());
+                watcher.onDidCreate(() => showAutoRunPrompt());
+                watcher.onDidDelete(() => showAutoRunPrompt());
+                context.subscriptions.push(watcher);
+            }
+        });
+    }
+}
+
+function showAutoRunPrompt() {
+    vscode.window.showInformationMessage('Dependency files changed. Do you want to run Dependency Check?', 'Yes', 'No')
+        .then(selection => {
+            if (selection === 'Yes') {
+                showOutputPanel();
+            }
+        });
+}

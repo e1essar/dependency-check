@@ -14,8 +14,8 @@
   "contributes": {
     "commands": [
       {
-        "command": "dependency-check.helloWorld",
-        "title": "Hello World"
+        "command": "dependency-check.runDC",
+        "title": "Run Dependency Check"
       },
       {
         "command": "dependency-check.showSettings",
@@ -33,7 +33,7 @@
         },
         "dependencyCheck.noupdate": {
         "type": "boolean",
-        "default": false,
+        "default": true,
         "description": "Whether to skip updating the Dependency Check database (--noupdate)"
         },
         "dependencyCheck.format": {
