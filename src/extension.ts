@@ -35,13 +35,37 @@ function showSettingsPanel() {
     setupSettingsWebviewMessageListener(panel);
 }
 
+function createWebviewPanel(viewType: string, title: string): vscode.WebviewPanel {
+    return vscode.window.createWebviewPanel(
+        viewType,
+        title,
+        vscode.ViewColumn.One,
+        { enableScripts: true }
+    );
+}
+
+function setupWebviewMessageListener(panel: vscode.WebviewPanel) {
+    panel.webview.onDidReceiveMessage(message => {
+        switch (message.command) {
+            case 'runDependencyCheck':
+                runDependencyCheck(panel);
+                break;
+            case 'cancelDependencyCheck':
+                cancelDependencyCheck(panel);
+                break;
+        }
+    });
+}
+
 function setupSettingsWebviewMessageListener(panel: vscode.WebviewPanel) {
     panel.webview.onDidReceiveMessage(async message => {
         if (message.command === 'saveSettings') {
             await saveSettings(message.settings);
             vscode.window.showInformationMessage('Settings saved successfully.');
-            panel.dispose();
+            updateSettingsForm(panel);
+            //panel.dispose();
         }
+        // ????
         if (message.command === 'updateDependencyCheck') {
             await updateDependencyCheck(panel);
             vscode.window.showInformationMessage('Dependency Check is up to date');
@@ -56,15 +80,6 @@ async function saveSettings(settings: any) {
     await config.update('noupdate', settings.noupdate, vscode.ConfigurationTarget.Global);
     await config.update('format', settings.format, vscode.ConfigurationTarget.Global);
     await config.update('nvdApiKey', settings.nvdApiKey, vscode.ConfigurationTarget.Global);
-}
-
-function createWebviewPanel(viewType: string, title: string): vscode.WebviewPanel {
-    return vscode.window.createWebviewPanel(
-        viewType,
-        title,
-        vscode.ViewColumn.One,
-        { enableScripts: true }
-    );
 }
 
 function getWebviewContent(): string {
@@ -175,19 +190,6 @@ function getWebviewContent(): string {
             </script>
         </body>
         </html>`;
-}
-
-function setupWebviewMessageListener(panel: vscode.WebviewPanel) {
-    panel.webview.onDidReceiveMessage(message => {
-        switch (message.command) {
-            case 'runDependencyCheck':
-                runDependencyCheck(panel);
-                break;
-            case 'cancelDependencyCheck':
-                cancelDependencyCheck(panel);
-                break;
-        }
-    });
 }
 
 async function runDependencyCheck(panel: vscode.WebviewPanel) {
