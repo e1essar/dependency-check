@@ -8,18 +8,18 @@
 - Отображение консоли для отслеживания процесса работы команды
 - Отображение результата в отдельной вкладке после завершения анализа
 - Отдельная вкладка WebView с глобальными/проектными настройками с возможностью изменять эти настройки здесь же
-- Возможность обновления актуальной версии Dependency Check (нужен фикс)
+- Возможность обновления актуальной версии Dependency Check
 - Возможность изменения параметров команды запуска Dependency Check в настройках
 - Отслеживание изменений зависимостей проекта и запуск Dependency Check
+- Проверка наличия необходимых интрументов для анализа
 
 ## Commands
 
 * `showSettings`: Отображает глобальные/проектные настройки и кнопку обновления версии DC
 * `runDC`: Открывает окно с запуском Dependency Check для анализа текущего открытого проекта
+* `checkDependencies`: Проверяет наличие необходимых инструментов для анализа
 
-![image](https://github.com/e1essar/dependency-check/assets/80064778/53152f11-8945-40ea-ac09-edcaf7bb0ee1)
-
-> Tip: 
+![image](https://github.com/user-attachments/assets/e6787de7-2a2c-47f1-838d-eee40bfc9b3e)
 
 ## Interfaces
 
@@ -35,7 +35,15 @@
 
 ![image](https://github.com/e1essar/dependency-check/assets/80064778/2d0ec678-c7c9-45dd-b0d1-b1cdb5d57ef7)
 
-> PS: Обновление Dependency Check не работает по неизвестной причине (работало в предыдущих коммитах). В дальнейшем будет фикс!
+> UPD: Обновление Dependency Check вновь работает. Может возникать ошибка при удалении текущей версии - необходимо завершить процессы Java в диспетчере задач.
+>
+>   ![image](https://github.com/user-attachments/assets/5e4e2acf-be02-4791-a791-c75c12b99744)
+
+- Check Dependencies (checkDependencies)
+
+![image](https://github.com/user-attachments/assets/3ad316aa-f4ef-48da-ae3c-41b0af6dd1ef)
+
+> PS: Maven is not required!
 
 ## Requirements
 
@@ -44,13 +52,21 @@
 
 ## Issues
 
-Обновление Dependency Check - проблема в активации работы команды
-Отмена текущей команды Cancel Dependency Check - проблема в остановке работы текущей команды
+- Отмена текущей команды Cancel Dependency Check - проблема в остановке работы текущей команды
 
 ## Release Notes
 
 ### 0.0.1
 
 Initial release of Dependency Check Extension
+
+### 0.0.2
+
+- Фикс обновления Dependency Check
+- Добавление команды для проверки необходимых инструментов
+- Отслеживание изменений зависимостей проекта
+
+![image](https://github.com/user-attachments/assets/3483a18b-3a51-48ef-b279-06b10aec9e77)
+
 
 **Enjoy!**
