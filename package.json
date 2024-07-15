@@ -20,6 +20,10 @@
       {
         "command": "dependency-check.showSettings",
         "title": "Show Settings"
+      },
+      {
+        "command": "dependency-check.checkDependencies",
+        "title": "Check Dependencies"
       }
     ],
     "configuration": {

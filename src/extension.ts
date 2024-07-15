@@ -15,7 +15,8 @@ export function activate(context: vscode.ExtensionContext) {
 
     context.subscriptions.push(
         vscode.commands.registerCommand('dependency-check.runDC', showOutputPanel),
-        vscode.commands.registerCommand('dependency-check.showSettings', showSettingsPanel)
+        vscode.commands.registerCommand('dependency-check.showSettings', showSettingsPanel),
+        vscode.commands.registerCommand('dependency-check.checkDependencies', checkDependencies)
     );
 
     watchForDependencyChanges(context);
@@ -63,13 +64,10 @@ function setupSettingsWebviewMessageListener(panel: vscode.WebviewPanel) {
             await saveSettings(message.settings);
             vscode.window.showInformationMessage('Settings saved successfully.');
             updateSettingsForm(panel);
-            //panel.dispose();
         }
-        // ????
+        // need to fix
         if (message.command === 'updateDependencyCheck') {
             await updateDependencyCheck(panel);
-            vscode.window.showInformationMessage('Dependency Check is up to date');
-            panel.dispose();
         }
     });
 }
@@ -268,39 +266,41 @@ async function updateDependencyCheck(panel: vscode.WebviewPanel) {
     }
 
     const dcFolderPath = installDir;
-    vscode.window.showInformationMessage(dcFolderPath);
+    vscode.window.showInformationMessage(`Dependency Check folder path: ${dcFolderPath}`);
+    
     try {
         const isWindows = os.platform() === 'win32';
 
-        // Getting the latest version
         const versionCommand = `curl https://jeremylong.github.io/DependencyCheck/current.txt`;
         exec(versionCommand, async (error, stdout, stderr) => {
             if (error) {
-                panel.webview.postMessage({ command: 'updateOutput', text: `Error fetching current version: ${error.message}` });
+                const message = `Error fetching current version: ${error.message}`;
+                vscode.window.showErrorMessage(message);
                 return;
             }
 
             const version = stdout.trim();
-            panel.webview.postMessage({ command: 'updateOutput', text: `Latest version: ${version}` });
+            vscode.window.showInformationMessage(`Latest Dependency Check version: ${version}`);
+            
+            let deleteCommand = isWindows 
+                ? `powershell -Command "Remove-Item -Path \\"${path.join(dcFolderPath, '*')}\\" -Recurse -Force"` 
+                : `rm -rf "${path.join(dcFolderPath, '*')}"`;
 
-            // Clearing the DC folder
-            vscode.window.showInformationMessage(dcFolderPath);
-            let deleteCommand = isWindows ? `powershell -Command "Remove-Item -Path \\"${path.join(dcFolderPath, '*')}\\" -Recurse -Force"` : `rm -rf "${path.join(dcFolderPath, '*')}"`;
             if (!fs.existsSync(dcFolderPath)) {
-                deleteCommand = `echo "hello"`;
+                deleteCommand = `echo "Folder does not exist, nothing to delete"`;
             }
 
             exec(deleteCommand, async (delError, delStdout, delStderr) => {
                 if (delError) {
-                    panel.webview.postMessage({ command: 'updateOutput', text: `Error deleting old version: ${delError.message}` });
+                    const message = `Error deleting old version: ${delError.message}`;
+                    vscode.window.showErrorMessage(message);
                     return;
                 }
 
-                panel.webview.postMessage({ command: 'updateOutput', text: `Old version deleted` });
+                vscode.window.showInformationMessage('Old Dependency Check version deleted');
 
-                // Downloading the new zip
                 const zipPath = path.join(dcFolderPath, 'dependency-check.zip');
-                panel.webview.postMessage({ command: 'updateOutput', text: `Zip path: ${zipPath}` });
+                vscode.window.showInformationMessage(`Zip path for download: ${zipPath}`);
 
                 try {
                     const response = await axios({
@@ -317,26 +317,27 @@ async function updateDependencyCheck(panel: vscode.WebviewPanel) {
                         writer.on('error', reject);
                     });
 
-                    panel.webview.postMessage({ command: 'updateOutput', text: `Downloaded new version` });
+                    vscode.window.showInformationMessage('Downloaded new Dependency Check version');
 
-                    // Unzipping the file
                     fs.createReadStream(zipPath)
                         .pipe(unzipper.Extract({ path: dcFolderPath }))
                         .on('close', () => {
-                            panel.webview.postMessage({ command: 'updateOutput', text: `Unzipped new version` });
+                            vscode.window.showInformationMessage('Unzipped new Dependency Check version');
 
-                            // Deleting the zip file
                             fs.unlink(zipPath, (unlinkErr) => {
                                 if (unlinkErr) {
-                                    panel.webview.postMessage({ command: 'updateOutput', text: `Error deleting zip file: ${unlinkErr.message}` });
+                                    const message = `Error deleting zip file: ${unlinkErr.message}`;
+                                    vscode.window.showErrorMessage(message);
                                     return;
                                 }
 
-                                panel.webview.postMessage({ command: 'updateOutput', text: `Dependency Check updated to version ${version}` });
+                                const message = `Dependency Check updated to version ${version}`;
+                                vscode.window.showInformationMessage('Dependency Check is up to date');
                             });
                         });
                 } catch (downloadError) {
-                    panel.webview.postMessage({ command: 'updateOutput', text: `Error downloading new version: ${downloadError}` });
+                    const message = `Error downloading new version: ${downloadError}`;
+                    vscode.window.showErrorMessage(message);
                 }
             });
         });
@@ -498,4 +499,22 @@ function showAutoRunPrompt() {
                 showOutputPanel();
             }
         });
+}
+
+function checkDependencies() {
+    const tools = [
+        { name: 'Java', command: 'java -version' },
+        { name: 'Maven', command: 'mvn -version' },
+        { name: 'NPM', command: 'npm -version' }
+    ];
+
+    tools.forEach(tool => {
+        exec(tool.command, (error, stdout, stderr) => {
+            if (error) {
+                vscode.window.showErrorMessage(`${tool.name} is not installed or not found.\n`);
+            } else {
+                vscode.window.showInformationMessage(`${tool.name} is installed.\n${stdout || stderr}`);
+            }
+        });
+    });
 }
