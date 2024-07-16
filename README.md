@@ -35,6 +35,8 @@
 
 ![image](https://github.com/e1essar/dependency-check/assets/80064778/2d0ec678-c7c9-45dd-b0d1-b1cdb5d57ef7)
 
+![image](https://github.com/user-attachments/assets/7a771580-771a-4309-9f9e-203173364c25)
+
 > UPD: Обновление Dependency Check вновь работает. Может возникать ошибка при удалении текущей версии - необходимо завершить процессы Java в диспетчере задач.
 >
 >   ![image](https://github.com/user-attachments/assets/5e4e2acf-be02-4791-a791-c75c12b99744)
